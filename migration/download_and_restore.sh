@@ -94,5 +94,5 @@ print("verl:", verl.__file__)
 PY
 
 echo "Restore complete. Activate with:"
-echo "source $CONDA_ROOT/etc/profile.d/conda.sh && conda activate $ENV_ROOT"
+echo "source $ENV_ROOT/bin/activate"
 echo "Resume checkpoint: $CHECKPOINT_ROOT/global_step_$CHECKPOINT_STEP"

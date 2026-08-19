@@ -37,8 +37,13 @@ bash migration/upload_modelscope.sh
 ## 新服务器
 
 ```bash
+python3 -m venv /tmp/airnav-transfer
+/tmp/airnav-transfer/bin/pip install modelscope
+/tmp/airnav-transfer/bin/modelscope login
+
 git clone https://gh-proxy.com/https://github.com/yj0325/AirNav
 cd AirNav
+PATH="/tmp/airnav-transfer/bin:$PATH" \
 AIRNAV_ROOT="$PWD" \
 CONDA_ROOT=/你的/miniconda3/路径 \
 bash migration/download_and_restore.sh
@@ -47,3 +52,4 @@ bash migration/download_and_restore.sh
 恢复脚本会下载私有 ModelScope 仓库、校验环境压缩包、执行 `conda-unpack`、
 重写源码和 Parquet 中的旧绝对路径、重新安装本地 VERL，并检查 CUDA 和关键包。
 目标机仍需安装与当前 PyTorch/CUDA兼容的 NVIDIA 驱动；打包环境不包含显卡驱动。
+恢复后的训练入口直接调用打包环境的 Python，不依赖 base Conda 的安装位置。

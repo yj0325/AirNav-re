@@ -22,8 +22,7 @@ export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 echo "[$(date '+%F %T')] stage=preprocess start" | tee -a "$PREPARE_LOG"
 cd "$ROOT"
-"$CONDA_ROOT/bin/conda" run --no-capture-output -p "$ENV_ROOT" \
-    python -u "$ROOT/scripts/prepare_airnav_grpo.py" --split all \
+"$ENV_ROOT/bin/python" -u "$ROOT/scripts/prepare_airnav_grpo.py" --split all \
     2>&1 | tee -a "$PREPARE_LOG"
 echo "[$(date '+%F %T')] stage=preprocess complete" | tee -a "$PREPARE_LOG"
 

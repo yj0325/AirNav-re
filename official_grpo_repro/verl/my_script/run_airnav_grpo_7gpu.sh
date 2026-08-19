@@ -58,8 +58,7 @@ if (( ${#TRAIN_FILES[@]} == 0 || ${#VAL_FILES[@]} == 0 )); then
 fi
 
 cd "$VERL_ROOT"
-exec "$CONDA_ROOT/bin/conda" run --no-capture-output -p "$ENV_ROOT" \
-    python -u -m verl.trainer.benchmark_trainer \
+exec "$ENV_ROOT/bin/python" -u -m verl.trainer.benchmark_trainer \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=false \
     algorithm.reuse_rollout_log_probs_as_old=true \
