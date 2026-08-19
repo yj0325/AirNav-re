@@ -43,7 +43,7 @@ python3 -m venv /tmp/airnav-transfer
 /tmp/airnav-transfer/bin/pip install modelscope
 /tmp/airnav-transfer/bin/modelscope login
 
-git clone https://gh-proxy.com/https://github.com/yj0325/AirNav
+git clone git@github.com:yj0325/AirNav.git
 cd AirNav
 PATH="/tmp/airnav-transfer/bin:$PATH" \
 AIRNAV_ROOT="$PWD" \

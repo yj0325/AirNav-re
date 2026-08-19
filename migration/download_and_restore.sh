@@ -17,7 +17,7 @@ if ! command -v modelscope >/dev/null 2>&1; then
     exit 2
 fi
 if [[ ! -d "$ROOT/.git" ]]; then
-    echo "Clone https://gh-proxy.com/https://github.com/yj0325/AirNav to $ROOT first." >&2
+    echo "Clone git@github.com:yj0325/AirNav.git to $ROOT first." >&2
     exit 3
 fi
 if [[ -d "$ENV_ROOT" ]] && [[ -n "$(find "$ENV_ROOT" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
