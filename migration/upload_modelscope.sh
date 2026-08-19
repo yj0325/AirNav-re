@@ -6,6 +6,7 @@ MODEL_REPO="${MODEL_REPO:-ddbcdd/airnav}"
 DATASET_REPO="${DATASET_REPO:-ddbcdd/airnav}"
 TRANSFER_DIR="${TRANSFER_DIR:-/data1/jingyang/tmp/airnav_migration}"
 PHOTO_ARCHIVE_DIR="$TRANSFER_DIR/train_photo_data"
+LARGE_DATA_ARCHIVE_DIR="$TRANSFER_DIR/large_data_file"
 MAX_WORKERS="${MAX_WORKERS:-4}"
 
 # The requested migration set. Optional unrelated AirNav weights are disabled.
@@ -42,10 +43,18 @@ fi
 if [[ "$UPLOAD_DATA" == "1" ]]; then
     require_path "$ROOT/data"
     require_path "$PHOTO_ARCHIVE_DIR/SHA256SUMS"
+    require_path "$LARGE_DATA_ARCHIVE_DIR/SHA256SUMS"
+    require_path "$LARGE_DATA_ARCHIVE_DIR/ORIGINAL_SHA256SUM"
     modelscope upload "$DATASET_REPO" \
         "$ROOT/data" data \
         --repo-type dataset --max-workers "$MAX_WORKERS" \
+        --exclude 'gsam/full_scan_*' 'data/gsam/full_scan_*' \
         --commit-message "Upload AirNav datasets"
+
+    modelscope upload "$DATASET_REPO" \
+        "$LARGE_DATA_ARCHIVE_DIR" archives/LargeData \
+        --repo-type dataset --max-workers "$MAX_WORKERS" \
+        --commit-message "Upload sharded large AirNav data file"
 
     modelscope upload "$DATASET_REPO" \
         "$PHOTO_ARCHIVE_DIR" archives/TrainPhotoData \

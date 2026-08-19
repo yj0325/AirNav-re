@@ -13,6 +13,7 @@ ModelScope 模型仓库保存 `AirNavSFT/`。数据集仓库按项目根目录�
 
 - `data/`
 - `archives/TrainPhotoData/`（约4GB一卷的无损 tar 分卷）
+- `archives/LargeData/`（3.21GB gsam 文件的1GB无损分卷）
 - `official_grpo_repro/checkpoints/airnav_grpo_7gpu_resume17_optimized/global_step_150/`
 - `official_grpo_repro/checkpoints/airnav_grpo_7gpu_resume17_optimized/latest_checkpointed_iteration.txt`
 - `environment/airnav-conda-pack.tar.gz`

@@ -40,6 +40,9 @@ modelscope download "$MODEL_REPO" --repo-type model \
 CHECKPOINT_ROOT="$ROOT/official_grpo_repro/checkpoints/$RUN_NAME"
 PHOTO_ARCHIVE_DIR="$ROOT/archives/TrainPhotoData"
 PHOTO_PARTS=("$PHOTO_ARCHIVE_DIR"/TrainPhotoData.tar.part-*)
+LARGE_DATA_ARCHIVE_DIR="$ROOT/archives/LargeData"
+LARGE_DATA_PARTS=("$LARGE_DATA_ARCHIVE_DIR"/full_scan.npz.part-*)
+LARGE_DATA_DIR="$ROOT/data/gsam"
 
 test -f "$PHOTO_ARCHIVE_DIR/SHA256SUMS"
 (
@@ -48,6 +51,19 @@ test -f "$PHOTO_ARCHIVE_DIR/SHA256SUMS"
 )
 mkdir -p "$ROOT/official_grpo_repro"
 cat "${PHOTO_PARTS[@]}" | tar -xf - -C "$ROOT/official_grpo_repro"
+
+test -f "$LARGE_DATA_ARCHIVE_DIR/SHA256SUMS"
+test -f "$LARGE_DATA_ARCHIVE_DIR/ORIGINAL_SHA256SUM"
+(
+    cd "$LARGE_DATA_ARCHIVE_DIR"
+    sha256sum -c SHA256SUMS
+)
+mkdir -p "$LARGE_DATA_DIR"
+cat "${LARGE_DATA_PARTS[@]}" > "$LARGE_DATA_DIR/full_scan_(100, 240, 410).npz"
+(
+    cd "$LARGE_DATA_DIR"
+    sha256sum -c "$LARGE_DATA_ARCHIVE_DIR/ORIGINAL_SHA256SUM"
+)
 
 test -d "$ROOT/model_weight/AirNavSFT"
 test -d "$ROOT/data/AirNav_GRPO"
