@@ -12,7 +12,7 @@ checkpoint 和 Conda 压缩包均不进入 Git，以避免 GitHub 单文件大�
 ModelScope 模型仓库保存 `AirNavSFT/`。数据集仓库按项目根目录布局保存：
 
 - `data/`
-- `official_grpo_repro/TrainPhotoData/`
+- `archives/TrainPhotoData/`（约4GB一卷的无损 tar 分卷）
 - `official_grpo_repro/checkpoints/airnav_grpo_7gpu_resume17_optimized/global_step_150/`
 - `official_grpo_repro/checkpoints/airnav_grpo_7gpu_resume17_optimized/latest_checkpointed_iteration.txt`
 - `environment/airnav-conda-pack.tar.gz`
@@ -28,6 +28,7 @@ ModelScope 模型仓库保存 `AirNavSFT/`。数据集仓库按项目根目录�
 
 ```bash
 bash migration/package_environment.sh
+bash migration/package_data.sh
 bash migration/upload_modelscope.sh
 ```
 
@@ -49,7 +50,9 @@ CONDA_ROOT=/你的/miniconda3/路径 \
 bash migration/download_and_restore.sh
 ```
 
-恢复脚本会下载私有 ModelScope 仓库、校验环境压缩包、执行 `conda-unpack`、
-重写源码和 Parquet 中的旧绝对路径、重新安装本地 VERL，并检查 CUDA 和关键包。
+恢复脚本会下载私有 ModelScope 仓库、校验并解开训练图片分卷、校验环境压缩包、
+执行 `conda-unpack`、重写源码和 Parquet 中的旧绝对路径、重新安装本地 VERL，
+并检查 CUDA 和关键包。图片分卷在成功解包后仍保留于 `archives/`，确认恢复无误后
+可手动删除以释放约17GB空间。
 目标机仍需安装与当前 PyTorch/CUDA兼容的 NVIDIA 驱动；打包环境不包含显卡驱动。
 恢复后的训练入口直接调用打包环境的 Python，不依赖 base Conda 的安装位置。

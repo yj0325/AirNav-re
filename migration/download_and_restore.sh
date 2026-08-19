@@ -35,6 +35,17 @@ modelscope download "$MODEL_REPO" --repo-type model \
     --local_dir "$ROOT/model_weight" --max-workers "$MAX_WORKERS"
 
 CHECKPOINT_ROOT="$ROOT/official_grpo_repro/checkpoints/$RUN_NAME"
+PHOTO_ARCHIVE_DIR="$ROOT/archives/TrainPhotoData"
+PHOTO_PARTS=("$PHOTO_ARCHIVE_DIR"/TrainPhotoData.tar.part-*)
+
+test -f "$PHOTO_ARCHIVE_DIR/SHA256SUMS"
+(
+    cd "$PHOTO_ARCHIVE_DIR"
+    sha256sum -c SHA256SUMS
+)
+mkdir -p "$ROOT/official_grpo_repro"
+cat "${PHOTO_PARTS[@]}" | tar -xf - -C "$ROOT/official_grpo_repro"
+
 test -d "$ROOT/model_weight/AirNavSFT"
 test -d "$ROOT/data/AirNav_GRPO"
 test -d "$ROOT/official_grpo_repro/TrainPhotoData"
@@ -96,3 +107,4 @@ PY
 echo "Restore complete. Activate with:"
 echo "source $ENV_ROOT/bin/activate"
 echo "Resume checkpoint: $CHECKPOINT_ROOT/global_step_$CHECKPOINT_STEP"
+echo "Verified archives remain in: $ROOT/archives (optional to delete after restore)"

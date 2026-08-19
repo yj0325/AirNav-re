@@ -5,6 +5,7 @@ ROOT="${AIRNAV_ROOT:-/data1/jingyang/AirNav}"
 MODEL_REPO="${MODEL_REPO:-ddbcdd/airnav}"
 DATASET_REPO="${DATASET_REPO:-ddbcdd/airnav}"
 TRANSFER_DIR="${TRANSFER_DIR:-/data1/jingyang/tmp/airnav_migration}"
+PHOTO_ARCHIVE_DIR="$TRANSFER_DIR/train_photo_data"
 MAX_WORKERS="${MAX_WORKERS:-4}"
 
 # The requested migration set. Optional unrelated AirNav weights are disabled.
@@ -40,17 +41,16 @@ fi
 
 if [[ "$UPLOAD_DATA" == "1" ]]; then
     require_path "$ROOT/data"
-    require_path "$ROOT/official_grpo_repro/TrainPhotoData"
+    require_path "$PHOTO_ARCHIVE_DIR/SHA256SUMS"
     modelscope upload "$DATASET_REPO" \
         "$ROOT/data" data \
         --repo-type dataset --max-workers "$MAX_WORKERS" \
         --commit-message "Upload AirNav datasets"
 
     modelscope upload "$DATASET_REPO" \
-        "$ROOT/official_grpo_repro/TrainPhotoData" \
-        official_grpo_repro/TrainPhotoData \
+        "$PHOTO_ARCHIVE_DIR" archives/TrainPhotoData \
         --repo-type dataset --max-workers "$MAX_WORKERS" \
-        --commit-message "Upload GRPO training images"
+        --commit-message "Upload sharded GRPO training image archive"
 fi
 
 if [[ "$UPLOAD_LATEST_CHECKPOINT" == "1" ]]; then
