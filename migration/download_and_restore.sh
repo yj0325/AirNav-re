@@ -30,9 +30,12 @@ mkdir -p "$ROOT/model_weight" "$HF_ROOT" "$TMP_ROOT/ray" "$ENV_ROOT"
 # Repository paths were uploaded relative to ROOT, so downloading at ROOT
 # restores data, TrainPhotoData, the checkpoint, tracker, and environment.
 modelscope download "$DATASET_REPO" --repo-type dataset \
-    --local_dir "$ROOT" --max-workers "$MAX_WORKERS"
+    --local_dir "$ROOT" --max-workers "$MAX_WORKERS" \
+    --include 'data/**' 'archives/**' 'environment/**' \
+    'official_grpo_repro/checkpoints/**'
 modelscope download "$MODEL_REPO" --repo-type model \
-    --local_dir "$ROOT/model_weight" --max-workers "$MAX_WORKERS"
+    --local_dir "$ROOT/model_weight" --max-workers "$MAX_WORKERS" \
+    --include 'AirNavSFT/**'
 
 CHECKPOINT_ROOT="$ROOT/official_grpo_repro/checkpoints/$RUN_NAME"
 PHOTO_ARCHIVE_DIR="$ROOT/archives/TrainPhotoData"
