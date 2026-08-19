@@ -81,6 +81,10 @@ class AlgoConfig(BaseConfig):
         rollout_is_veto_threshold (float): Per-token veto threshold for catastrophic outliers.
         rollout_is (bool): Whether to apply IS weights to policy loss. True = apply weights,
             False = compute metrics only (useful for monitoring before enabling correction). Default: False.
+        airnav_return_beta (float): Discount factor used for the future segment return in
+            full-episode AirNav GRPO rollouts.
+        airnav_adv_epsilon (float): Numerical stability term for segment-wise group
+            normalization in AirNav GRPO.
     """
 
     gamma: float = 1.0
@@ -103,3 +107,5 @@ class AlgoConfig(BaseConfig):
     # Controls whether to apply IS weights to policy loss (only if rollout_is_threshold is set)
     # True = apply weights to loss, False = compute metrics only (no weight application)
     rollout_is: bool = False
+    airnav_return_beta: float = 0.95
+    airnav_adv_epsilon: float = 1e-6

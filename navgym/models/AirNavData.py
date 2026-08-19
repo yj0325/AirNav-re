@@ -11,12 +11,13 @@ from gsamllavanav.dataset.episode import Episode
 from tqdm import tqdm
 import numpy as np
 from copy import deepcopy
+from collections import OrderedDict
 
 
 class SingleAirNavData:
     def __init__(
             self, episode: Episode, map: LandmarkNavMap, rgb: np.ndarray, height: np.ndarray, 
-            px_list: list[tuple[int, int]], raster: rasterio.DatasetReader):
+            px_list: list[tuple[int, int]], raster: rasterio.DatasetReader, copy_arrays: bool = True):
         """
         Used to store single city navigation data
         Args:
@@ -29,8 +30,10 @@ class SingleAirNavData:
         """
         self.episode = deepcopy(episode)
         self.map = deepcopy(map)
-        self.rgb = deepcopy(rgb)
-        self.height = deepcopy(height)
+        # Online GRPO creates several independent NavGym states for the same episode.
+        # RGB/elevation rasters are immutable, so sharing them avoids multi-GB copies.
+        self.rgb = deepcopy(rgb) if copy_arrays else rgb
+        self.height = deepcopy(height) if copy_arrays else height
         self.px_list = px_list
         self.raster = raster
 
@@ -40,7 +43,8 @@ class AirNavData:
             self, path, fix_altitude=50, max_dist_marker_to_target=1000000, 
             map_shape=(240, 240), map_pixels_per_meter=240/410, use_segmentation_mask=True,
             use_bbox_confidence=False, box_threshold=0.2, text_threshold=0.25,
-            max_box_size=50, max_box_area=3000, image_dir="./data/rgbd-new"
+            max_box_size=50, max_box_area=3000, image_dir="./data/rgbd-new",
+            lazy_maps=False, map_cache_size=32, lazy_images=False, image_cache_size=8
         ):
         """
         Used to store city navigation data
@@ -72,13 +76,17 @@ class AirNavData:
             box_threshold=box_threshold, text_threshold=text_threshold,
             max_box_size=max_box_size, max_box_area=max_box_area
         )
-        self.maps = [
-            LandmarkNavMap(
-                map_name=eps.map_name, map_shape=map_shape, map_pixels_per_meter=map_pixels_per_meter,
-                landmark_names=eps.description_landmarks, target_name=eps.description_target, 
-                surroundings_names=eps.description_surroundings, gsam_params=gp
-            ) for eps in self.episodes
-        ]
+        self._map_shape = map_shape
+        self._map_pixels_per_meter = map_pixels_per_meter
+        self._gsam_params = gp
+        self._lazy_maps = lazy_maps
+        self._map_cache_size = map_cache_size
+        self._map_lru = OrderedDict()
+        self.maps = (
+            [None] * len(self.episodes)
+            if lazy_maps
+            else [self._build_map(eps) for eps in self.episodes]
+        )
 
         self.data_len = len(self.episodes)
 
@@ -86,16 +94,24 @@ class AirNavData:
             raster_path.stem: rasterio.open(raster_path)
             for raster_path in image_dir.glob("*.tif")
         }
-
-        self._rgb_cache = {
-            rgb_path.stem: cv2.cvtColor(cv2.imread(str(rgb_path)), cv2.COLOR_BGR2RGB)
-            for rgb_path in tqdm(image_dir.glob("*.png"), desc="reading rgb data from disk", leave=False)
-        }
-
-        self._height_cache = {
-            map_name: raster.read(1)  # read first channel (1-based index)
-            for map_name, raster in tqdm(self._raster_cache.items(), desc="reading depth data from disk", leave=False)
-        }
+        self._rgb_paths = {rgb_path.stem: rgb_path for rgb_path in image_dir.glob("*.png")}
+        self._lazy_images = lazy_images
+        self._image_cache_size = image_cache_size
+        self._image_lru = OrderedDict()
+        if lazy_images:
+            self._rgb_cache = {}
+            self._height_cache = {}
+        else:
+            self._rgb_cache = {
+                map_name: cv2.cvtColor(cv2.imread(str(rgb_path)), cv2.COLOR_BGR2RGB)
+                for map_name, rgb_path in tqdm(self._rgb_paths.items(), desc="reading rgb data from disk", leave=False)
+            }
+            self._height_cache = {
+                map_name: raster.read(1)  # read first channel (1-based index)
+                for map_name, raster in tqdm(
+                    self._raster_cache.items(), desc="reading depth data from disk", leave=False
+                )
+            }
     
     def _get_pose_px(self, pose, map_name):
         """
@@ -109,6 +125,43 @@ class AirNavData:
         raster = self._raster_cache[map_name]
         center_x, center_y = raster.index(pose.x, pose.y)
         return [int(center_y), int(center_x)]
+
+    def _build_map(self, episode):
+        return LandmarkNavMap(
+            map_name=episode.map_name,
+            map_shape=self._map_shape,
+            map_pixels_per_meter=self._map_pixels_per_meter,
+            landmark_names=episode.description_landmarks,
+            target_name=episode.description_target,
+            surroundings_names=episode.description_surroundings,
+            gsam_params=self._gsam_params,
+        )
+
+    def _get_map(self, idx):
+        if self.maps[idx] is None:
+            self.maps[idx] = self._build_map(self.episodes[idx])
+        if self._lazy_maps:
+            self._map_lru.pop(idx, None)
+            self._map_lru[idx] = None
+            while len(self._map_lru) > self._map_cache_size:
+                evicted_idx, _ = self._map_lru.popitem(last=False)
+                self.maps[evicted_idx] = None
+        return self.maps[idx]
+
+    def _get_rgb_height(self, map_name):
+        if map_name not in self._rgb_cache:
+            self._rgb_cache[map_name] = cv2.cvtColor(
+                cv2.imread(str(self._rgb_paths[map_name])), cv2.COLOR_BGR2RGB
+            )
+            self._height_cache[map_name] = self._raster_cache[map_name].read(1)
+        if self._lazy_images:
+            self._image_lru.pop(map_name, None)
+            self._image_lru[map_name] = None
+            while len(self._image_lru) > self._image_cache_size:
+                evicted_name, _ = self._image_lru.popitem(last=False)
+                self._rgb_cache.pop(evicted_name, None)
+                self._height_cache.pop(evicted_name, None)
+        return self._rgb_cache[map_name], self._height_cache[map_name]
     
     def _get_px_list(self, map_name, contour):
         """
@@ -140,14 +193,21 @@ class AirNavData:
                 px_list=px_list, raster=self._raster_cache[self.episodes[idx].map_name]
             ) single city navigation data
         """
+        return self.get_item(idx, copy_arrays=True)
+
+    def get_item(self, idx, copy_arrays=True):
+        """Return an independent episode/map state, optionally sharing immutable rasters."""
+        episode_map = self._get_map(idx)
+        rgb, height = self._get_rgb_height(self.episodes[idx].map_name)
         px_list = [
             np.array([self._get_px_list(self.episodes[idx].map_name, x.contour)], dtype=np.int32)
-            for x in self.maps[idx].landmark_map.landmarks
+            for x in episode_map.landmark_map.landmarks
         ]
         return SingleAirNavData(
             episode=self.episodes[idx], 
-            map=self.maps[idx], 
-            rgb=deepcopy(self._rgb_cache[self.episodes[idx].map_name]), 
-            height=deepcopy(self._height_cache[self.episodes[idx].map_name]),
-            px_list=px_list, raster=self._raster_cache[self.episodes[idx].map_name]
+            map=episode_map,
+            rgb=rgb,
+            height=height,
+            px_list=px_list, raster=self._raster_cache[self.episodes[idx].map_name],
+            copy_arrays=copy_arrays,
         )

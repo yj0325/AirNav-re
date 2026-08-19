@@ -34,11 +34,26 @@ from vllm.entrypoints.openai.api_server import (
 from vllm.inputs import TokensPrompt
 from vllm.outputs import RequestOutput
 from vllm.usage.usage_lib import UsageContext
-from vllm.utils import FlexibleArgumentParser, get_tcp_uri
+from vllm.utils import FlexibleArgumentParser
+
+try:
+    from vllm.utils import get_tcp_uri
+except ImportError:
+    # vLLM 0.8.x exposes the V1 engine APIs used below but only added this
+    # small URI helper in a later release. Keep the CUDA 12.4 / torch 2.6
+    # compatible vLLM build and provide the equivalent formatting locally.
+    def get_tcp_uri(host: str, port: int) -> str:
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        return f"tcp://{host}:{port}"
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.engine.core import EngineCoreProc
-from vllm.v1.engine.utils import CoreEngineProcManager
 from vllm.v1.executor.abstract import Executor
+
+try:
+    from vllm.v1.engine.utils import CoreEngineProcManager
+except ModuleNotFoundError:
+    CoreEngineProcManager = None
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
@@ -251,7 +266,7 @@ class vLLMHttpServer:
                     server_args.append(f"--{k}")
             else:
                 server_args.append(f"--{k}")
-                server_args.append(str(v))
+                server_args.append(json.dumps(v) if isinstance(v, (dict, list)) else str(v))
 
         if self.replica_rank == 0:
             pprint(server_args)
@@ -301,7 +316,8 @@ class vLLMHttpServer:
         )
 
         # Don't keep the dummy data in memory
-        await engine_client.reset_mm_cache()
+        if hasattr(engine_client, "reset_mm_cache"):
+            await engine_client.reset_mm_cache()
 
         app = build_app(args)
         await init_app_state(engine_client, vllm_config, app.state, args)
@@ -312,6 +328,9 @@ class vLLMHttpServer:
         self._server_port, self._server_task = await run_unvicorn(app, args, self._server_address)
 
     async def run_headless(self, args: argparse.Namespace):
+        if CoreEngineProcManager is None:
+            raise RuntimeError("Headless vLLM data parallel requires vLLM >= 0.10.0")
+
         # Create the EngineConfig.
         engine_args = vllm.AsyncEngineArgs.from_cli_args(args)
         usage_context = UsageContext.OPENAI_API_SERVER
@@ -392,7 +411,8 @@ class vLLMHttpServer:
             logger.info("skip sleep in standalone mode")
 
     async def wait_for_requests_to_drain(self):
-        await self.engine.wait_for_requests_to_drain()
+        if hasattr(self.engine, "wait_for_requests_to_drain"):
+            await self.engine.wait_for_requests_to_drain()
 
 
 _rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)

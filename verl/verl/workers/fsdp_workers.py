@@ -962,13 +962,20 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
         # perform recompute log_prob
+        # Entropy is only needed when it participates in the actor objective.
+        # AirNav GRPO uses entropy_coeff=0, so computing the full-vocabulary
+        # entropy here only adds forward-pass work and memory pressure.
+        calculate_entropy = self.config.actor.entropy_coeff != 0
         with self.ulysses_sharding_manager:
             with adapter_ctx:
-                output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
-            output = DataProto.from_dict(
-                tensors={"old_log_probs": output, "entropys": entropys},
-                meta_info={"temperature": self.config.rollout.temperature},
-            )
+                output, entropys = self.actor.compute_log_prob(
+                    data=data,
+                    calculate_entropy=calculate_entropy,
+                )
+            tensors = {"old_log_probs": output}
+            if calculate_entropy:
+                tensors["entropys"] = entropys
+            output = DataProto.from_dict(tensors=tensors, meta_info={"temperature": self.config.rollout.temperature})
 
         output = output.to("cpu")
 

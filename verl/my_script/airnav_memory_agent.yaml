@@ -1,0 +1,9 @@
+- name: airnav_memory
+  _target_: verl.airnav_memory.agent_loop.AirNavMemoryAgentLoop
+  memory_capacity: 4
+  max_episode_actions: ${oc.env:AIRNAV_MAX_ACTIONS,160}
+  max_segments: ${oc.env:AIRNAV_MAX_SEGMENTS,24}
+  success_distance: ${oc.env:AIRNAV_SUCCESS_DISTANCE,20.0}
+  success_reward: ${oc.env:AIRNAV_SUCCESS_REWARD,5.0}
+  failure_reward: ${oc.env:AIRNAV_FAILURE_REWARD,-2.0}
+  segment_penalty: ${oc.env:AIRNAV_SEGMENT_PENALTY,0.05}

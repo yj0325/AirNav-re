@@ -1,6 +1,34 @@
-# ignore data directory
+# Large datasets, model weights, and checkpoints are distributed separately.
 data/
 model_weight/
+**/checkpoints/
+official_grpo_repro/TrainPhotoData/
+
+# Generated experiment artifacts.
+logs/
+result/
+**/wandb/
+**/outputs/
+official_grpo_repro/run/
+*.log
+*.pid
+*.stop
+nohup.out
+
+# Python and test caches.
 __pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local migration packages and temporary files.
+migration/artifacts/
+*.tmp
+*.tar.gz
+
+# Local credentials and API configuration.
+.env
+.env.*
+!.env.example
+
 instruction_generate/
 data_train/

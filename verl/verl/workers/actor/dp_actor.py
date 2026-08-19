@@ -383,9 +383,23 @@ class DataParallelPPOActor(BasePPOActor):
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
+        # Online AirNav expands every physical episode into a variable number
+        # of segment rows. Treat the complete local shard as one PPO mini-batch
+        # so one global rollout batch produces one optimizer step (per PPO
+        # epoch), matching the update cadence of the original fixed-sample run.
+        full_batch_update = bool(data.meta_info.get("full_batch_update", False))
+        effective_mini_batch_size = len(data) if full_batch_update else self.config.ppo_mini_batch_size
+        effective_sample_count = (
+            int((data.batch["response_mask"].sum(dim=-1) > 0).sum().item())
+            if full_batch_update
+            else effective_mini_batch_size
+        )
+        if effective_sample_count <= 0:
+            raise RuntimeError("PPO update received no valid response sequences")
+
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
-        mini_batches = data.split(self.config.ppo_mini_batch_size)
+        mini_batches = data.split(effective_mini_batch_size)
 
         on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
 
@@ -397,7 +411,7 @@ class DataParallelPPOActor(BasePPOActor):
                     micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
                 else:
                     self.gradient_accumulation = (
-                        self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                        effective_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
                     )
                     micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
@@ -415,7 +429,8 @@ class DataParallelPPOActor(BasePPOActor):
                     loss_agg_mode = self.config.loss_agg_mode
 
                     if self.config.use_dynamic_bsz:
-                        loss_scale_factor = response_mask.shape[0] / self.config.ppo_mini_batch_size
+                        micro_valid_count = int((response_mask.sum(dim=-1) > 0).sum().item())
+                        loss_scale_factor = micro_valid_count / effective_sample_count
                     else:
                         loss_scale_factor = 1 / self.gradient_accumulation
 
@@ -498,6 +513,8 @@ class DataParallelPPOActor(BasePPOActor):
 
                 grad_norm = self._optimizer_step()
                 mini_batch_metrics = {"actor/grad_norm": grad_norm.detach().item()}
+                mini_batch_metrics["actor/optimizer_steps"] = 1.0
+                mini_batch_metrics["actor/full_batch_update"] = float(full_batch_update)
                 append_to_dict(metrics, mini_batch_metrics)
         self.actor_optimizer.zero_grad()
         return metrics

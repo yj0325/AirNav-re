@@ -240,6 +240,20 @@ def compute_advantage(
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
+    elif adv_estimator == "airnav_episode_grpo":
+        # Importing registers the estimator and keeps the AirNav extension optional.
+        from verl.airnav_memory.advantage import compute_airnav_episode_grpo_advantage
+
+        advantages, returns = compute_airnav_episode_grpo_advantage(
+            token_level_rewards=data.batch["token_level_rewards"],
+            response_mask=data.batch["response_mask"],
+            episode_uid=data.non_tensor_batch["episode_uid"],
+            rollout_id=data.non_tensor_batch["rollout_id"],
+            segment_index=data.non_tensor_batch["segment_index"],
+            config=config,
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
@@ -908,6 +922,14 @@ class RayPPOTrainer:
         batch_size = attention_mask.shape[0]
         global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1).tolist()  # (train_batch_size,)
         world_size = self.actor_rollout_wg.world_size
+        # AirNav expands complete episodes into a variable number of segment
+        # rows. Equal-size token balancing requires divisibility by DP world
+        # size; dispatch-level auto-padding will safely handle other batches.
+        # Skipping only the reorder avoids introducing duplicate trajectories
+        # before reward/advantage computation, which would bias GRPO groups.
+        if batch_size % world_size != 0:
+            metrics[f"{logging_prefix}/balance_skipped"] = 1
+            return
         global_partition_lst = get_seqlen_balanced_partitions(
             global_seqlen_lst, k_partitions=world_size, equal_size=True
         )
@@ -1071,12 +1093,40 @@ class RayPPOTrainer:
                             batch.batch["reward_baselines"] = reward_baseline_tensor
 
                             del gen_baseline_batch, gen_baseline_output
-                    # repeat to align with repeated responses in rollout
-                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                    batch = batch.union(gen_batch_output)
+                    # AirNav online rollout expands each episode into a variable number of
+                    # segment samples. Those outputs already contain every field needed by
+                    # the actor and must not be unioned with the episode-level placeholder.
+                    if gen_batch_output.meta_info.get("episode_expanded", False):
+                        batch = gen_batch_output
+                        batch.meta_info["full_batch_update"] = True
+                    else:
+                        # repeat to align with repeated responses in rollout
+                        batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                        batch = batch.union(gen_batch_output)
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
+
+                    if batch.meta_info.get("full_batch_update", False):
+                        rollout_count = len(gen_batch)
+                        metrics["airnav/segment_count"] = len(batch)
+                        metrics["airnav/segments_per_rollout"] = len(batch) / max(rollout_count, 1)
+                        for key, metric_name in (
+                            ("predicted_action_count", "airnav/predicted_actions_per_segment"),
+                            ("executed_action_count", "airnav/executed_actions_per_segment"),
+                        ):
+                            if key in batch.non_tensor_batch:
+                                metrics[metric_name] = float(np.mean(batch.non_tensor_batch[key].astype(float)))
+                        if "episode_terminal" in batch.non_tensor_batch:
+                            terminal_mask = batch.non_tensor_batch["episode_terminal"].astype(bool)
+                            metrics["airnav/terminal_rollout_count"] = int(terminal_mask.sum())
+                            if terminal_mask.any() and "episode_success" in batch.non_tensor_batch:
+                                success = batch.non_tensor_batch["episode_success"].astype(bool)
+                                metrics["airnav/success_rate"] = float(success[terminal_mask].mean())
+                            if terminal_mask.any() and "termination_reason" in batch.non_tensor_batch:
+                                reasons = batch.non_tensor_batch["termination_reason"][terminal_mask]
+                                for reason in ("success", "wrong_stop", "max_actions", "max_segments", "invalid_format"):
+                                    metrics[f"airnav/termination/{reason}"] = float(np.mean(reasons == reason))
                     # Balance the number of valid tokens across DP ranks.
                     # NOTE: This usually changes the order of data in the `batch`,
                     # which won't affect the advantage calculation (since it's based on uid),
@@ -1102,13 +1152,16 @@ class RayPPOTrainer:
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                        entropys = old_log_prob.batch["entropys"]
-                        response_masks = batch.batch["response_mask"]
-                        loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
-                        entropy_agg = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
-                        old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
-                        metrics.update(old_log_prob_metrics)
-                        old_log_prob.batch.pop("entropys")
+                        if "entropys" in old_log_prob.batch:
+                            entropys = old_log_prob.batch.pop("entropys")
+                            response_masks = batch.batch["response_mask"]
+                            loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
+                            entropy_agg = agg_loss(
+                                loss_mat=entropys,
+                                loss_mask=response_masks,
+                                loss_agg_mode=loss_agg_mode,
+                            )
+                            metrics["actor/entropy"] = entropy_agg.detach().item()
                         batch = batch.union(old_log_prob)
 
                         if "rollout_log_probs" in batch.batch.keys():
@@ -1218,11 +1271,17 @@ class RayPPOTrainer:
                 # 2. It's the last training step.
                 # 3. The current step number is a multiple of the save frequency.
                 # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
-                if self.config.trainer.save_freq > 0 and (
-                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration
-                ):
+                stop_file = self.config.trainer.get("stop_file", None)
+                stop_requested = bool(stop_file and os.path.isfile(stop_file))
+                should_save = stop_requested or (
+                    self.config.trainer.save_freq > 0
+                    and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration)
+                )
+                if should_save:
                     if esi_close_to_expiration:
                         print("Force saving checkpoint: ESI instance expiration approaching.")
+                    if stop_requested:
+                        print(f"Graceful stop requested by {stop_file}; saving checkpoint before exit.")
                     with marked_timer("save_checkpoint", timing_raw, color="green"):
                         self._save_checkpoint()
 
@@ -1267,6 +1326,15 @@ class RayPPOTrainer:
 
                 progress_bar.update(1)
                 self.global_steps += 1
+
+                if stop_requested:
+                    try:
+                        os.remove(stop_file)
+                    except FileNotFoundError:
+                        pass
+                    progress_bar.close()
+                    print("Checkpoint saved; exiting training cleanly after graceful stop request.")
+                    return
 
                 if (
                     hasattr(self.config.actor_rollout_ref.actor, "profiler")

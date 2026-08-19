@@ -42,7 +42,13 @@ class PhotoDirs(BaseModel):
 
 
 class NavGym:
-    def __init__(self, airnav_data: SingleAirNavData, data_dir = os.path.abspath('./R1PhotoData')):
+    def __init__(
+        self,
+        airnav_data: SingleAirNavData,
+        data_dir=os.path.abspath('./R1PhotoData'),
+        write_images=True,
+        track_visualization=True,
+    ):
         """
         Store navigation data
         Args:
@@ -50,7 +56,9 @@ class NavGym:
         """
         self.data = airnav_data
         px_names = [x.name for x in self.map.landmark_map.landmarks]
-        self.map_photo_with_landmark = deepcopy(self.rgb)
+        self.write_images = write_images
+        self.track_visualization = track_visualization
+        self.map_photo_with_landmark = deepcopy(self.rgb) if track_visualization else None
         # self.father_image_dir = f'{data_dir}/{self.episode.map_name}_{time_str()}'
         self.father_image_dir = f'{data_dir}/{self.episode_id}'
         self.cur_pos = self.start_pose
@@ -77,7 +85,8 @@ class NavGym:
         # self.map_photo_with_landmark = draw_landmarks(self.map_photo_with_landmark, self.px_list, px_names)
         # draw_star(self.map_photo_with_landmark, self._get_px(self.start_pose))
 
-        os.makedirs(self.father_image_dir, exist_ok=True)
+        if self.write_images:
+            os.makedirs(self.father_image_dir, exist_ok=True)
         self._generate_photo()
         # print(self.photo_dirs[-1].map_photo_path)
         
@@ -192,12 +201,14 @@ class NavGym:
         
         self.px_trajectory.append(self._get_px(self.cur_pos))
         self.trajectory.append(deepcopy(self.cur_pos))
-        tra_re_img = crop_trajectory(
-            image=self.map_photo_with_landmark, px_trajectory=self.px_trajectory, area=area,
-            savefig=savefig, directions=[math.sin(math.pi/2+self.cur_pos.yaw), math.cos(math.pi/2+self.cur_pos.yaw)]
-        )
-        if self.cur_step == 2:
-            draw_star(self.map_photo_with_landmark, self._get_px(self.start_pose), (0, 0, 0, 255))
+        tra_re_img = None
+        if self.track_visualization:
+            tra_re_img = crop_trajectory(
+                image=self.map_photo_with_landmark, px_trajectory=self.px_trajectory, area=area,
+                savefig=savefig, directions=[math.sin(math.pi/2+self.cur_pos.yaw), math.cos(math.pi/2+self.cur_pos.yaw)]
+            )
+            if self.cur_step == 2:
+                draw_star(self.map_photo_with_landmark, self._get_px(self.start_pose), (0, 0, 0, 255))
         self.map.update_observations(self.cur_pos, self.rgb_crop, None, True)
 
         self.height_crop = crop_height(
@@ -206,9 +217,9 @@ class NavGym:
             shape_real_size=self.drone_view_px_size
         )
 
-        if savefig:
+        if savefig and self.write_images and tra_re_img is not None:
             plt.imsave(self.photo_dirs[-1].map_photo_path, tra_re_img)
-        if saveviewfig:
+        if saveviewfig and self.write_images:
             plt.imsave(self.photo_dirs[-1].rgb_drone_path, self.rgb_crop)
         # Uncomment as needed for required images
         # Depth view data
@@ -471,5 +482,3 @@ class NavGym:
             map_name: map name
         """
         return self.episode.map_name
-
-    

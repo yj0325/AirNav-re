@@ -471,8 +471,11 @@ class AgentLoopWorker:
             kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
             tasks.append(asyncio.create_task(self._run_agent_loop(sampling_params, trajectory_info[i], **kwargs)))
         outputs = await asyncio.gather(*tasks)
+        outputs = [item for output in outputs for item in (output if isinstance(output, list) else [output])]
 
         output = self._postprocess(outputs)
+        if any(item.extra_fields.get("episode_expanded", False) for item in outputs):
+            output.meta_info["episode_expanded"] = True
         return output
 
     async def _run_agent_loop(
@@ -482,7 +485,7 @@ class AgentLoopWorker:
         *,
         agent_name: str,
         **kwargs,
-    ) -> _InternalAgentLoopOutput:
+    ) -> _InternalAgentLoopOutput | list[_InternalAgentLoopOutput]:
         with rollout_trace_attr(
             step=trajectory["step"],
             sample_index=trajectory["sample_index"],
@@ -494,15 +497,32 @@ class AgentLoopWorker:
                 f"Agent loop {agent_name} not registered, registered agent loops: {_agent_loop_registry.keys()}"
             )
 
-            agent_loop_config = _agent_loop_registry[agent_name]
-            agent_loop = hydra.utils.instantiate(
-                config=agent_loop_config,
-                trainer_config=_DummyConfig(config=self.config),
-                server_manager=self.server_manager,
-                tokenizer=self.tokenizer,
-                processor=self.processor,
-            )
-            output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
+            precomputed_output = kwargs.pop("_precomputed_agent_output", None)
+            if precomputed_output is None:
+                agent_loop_config = _agent_loop_registry[agent_name]
+                agent_loop = hydra.utils.instantiate(
+                    config=agent_loop_config,
+                    trainer_config=_DummyConfig(config=self.config),
+                    server_manager=self.server_manager,
+                    tokenizer=self.tokenizer,
+                    processor=self.processor,
+                )
+                output: AgentLoopOutput | list[AgentLoopOutput] = await agent_loop.run(
+                    sampling_params, _trajectory=trajectory, **kwargs
+                )
+                if isinstance(output, list):
+                    return [
+                        await self._run_agent_loop(
+                            sampling_params,
+                            trajectory,
+                            agent_name=agent_name,
+                            _precomputed_agent_output=segment_output,
+                            **kwargs,
+                        )
+                        for segment_output in output
+                    ]
+            else:
+                output = precomputed_output
 
             # Some AgentLoop may have already computed the reward score, e.g SWE-agent.
 

@@ -20,6 +20,7 @@ from verl import DataProto
 from verl.protocol import DataProtoConfig
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.decorator import _split_args_kwargs_data_proto_with_auto_padding
 from verl.single_controller.ray.base import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 
 # or set env var VERL_AUTO_PADDING = "1" / "true"
@@ -146,6 +147,20 @@ def test_auto_padding():
     assert len(output) == 8, "Failed in kwargs split and padding."
 
     ray.shutdown()
+
+
+def test_nd_dispatch_auto_padding_keeps_all_ranks_equal():
+    data = DataProto.from_dict(
+        {"a": torch.arange(44), "response_mask": torch.ones(44, 2)},
+        {"na": np.array([str(i) for i in range(44)], dtype=object)},
+    )
+    args, kwargs = _split_args_kwargs_data_proto_with_auto_padding(6, data)
+
+    shards = args[0]
+    assert len(shards) == 6
+    assert [len(shard) for shard in shards] == [8] * 6
+    assert kwargs["_padding_size_key_x123d"] == [4] * 6
+    assert sum(int(shard.batch["response_mask"].sum()) for shard in shards) == 44 * 2
 
 
 if __name__ == "__main__":

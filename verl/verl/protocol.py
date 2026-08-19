@@ -865,6 +865,11 @@ class DataProto:
         padding_candidate = self.select_idxs([0 if padding_candidate == "first" else len(self) - 1])
         padding_part = padding_candidate.repeat(padding_size)
         padded_dp = DataProto.concat([self, padding_part])
+        # Repeated rows exist only to make distributed shards equal-sized.
+        # Keep their real tokens for a valid forward pass, but exclude every
+        # generated token from actor/ref losses and token-level statistics.
+        if padded_dp.batch is not None and "response_mask" in padded_dp.batch:
+            padded_dp.batch["response_mask"][-padding_size:] = 0
         self.batch = padded_dp.batch
         self.non_tensor_batch = padded_dp.non_tensor_batch
 

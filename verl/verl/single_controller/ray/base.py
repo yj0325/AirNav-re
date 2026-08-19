@@ -43,6 +43,12 @@ def func_generator(self, method_name, dispatch_fn, collect_fn, execute_fn, block
         def __call__(this, *args, **kwargs):
             args, kwargs = dispatch_fn(self, *args, **kwargs)
             padding_count = kwargs.pop(_padding_size_key, 0)
+            if isinstance(padding_count, (list, tuple)):
+                assert padding_count, "padding metadata must not be empty"
+                assert all(count == padding_count[0] for count in padding_count), (
+                    f"inconsistent padding metadata across ranks: {padding_count}"
+                )
+                padding_count = padding_count[0]
             output = execute_fn(method_name, *args, **kwargs)
             if blocking:
                 output = ray.get(output)

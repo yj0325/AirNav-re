@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(".")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 WEIGHTS_DIR = PROJECT_ROOT/"weights"
 GOAL_PREDICTOR_CHECKPOINT_DIR = PROJECT_ROOT/"checkpoints/goal_predictor"
@@ -31,10 +31,10 @@ GDINO_MODEL_SIZE = "B" if False else "T"
 ## configs
 GDINO_CONFIG_DIR = PROJECT_ROOT/"gsamllavanav/configs/groundingdino"
 # GDINO_CONFIG_PATH = GDINO_CONFIG_DIR/f"GroundingDINO_Swin{'B_cfg' if GDINO_MODEL_SIZE == 'B' else 'T_OGC'}.py"
-GDINO_CONFIG_PATH = './weights/groundingdino/GroundingDINO_SwinT_OGC.py'
+GDINO_CONFIG_PATH = WEIGHTS_DIR/"groundingdino/GroundingDINO_SwinT_OGC.py"
 ## weights
 # GDINO_CHECKPOINT_PATH = WEIGHTS_DIR/f"groundingdino/groundingdino_swin{'b_cogcoor' if GDINO_MODEL_SIZE == 'B' else 't_ogc'}.pth"
-GDINO_CHECKPOINT_PATH = './weights/groundingdino/groundingdino_swint_ogc.pth'
+GDINO_CHECKPOINT_PATH = WEIGHTS_DIR/"groundingdino/groundingdino_swint_ogc.pth"
 MOBILE_SAM_CHECKPOINT_PATH = WEIGHTS_DIR/"mobile_sam/mobile_sam.pt"
 ## data
 GSAM_MAPS_DIR = PROJECT_ROOT/"data/gsam"

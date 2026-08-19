@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import inspect
+import copy
 from functools import partial, wraps
 from types import FunctionType
 
@@ -94,6 +95,10 @@ def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
         nonlocal data_proto_len, padding_size
         assert isinstance(obj, DataProto | DataProtoFuture)
         if isinstance(obj, DataProto) and obj.is_padding_enabled():
+            # Padding is a dispatch-only concern.  Do not mutate the trainer's
+            # original DataProto, otherwise the collected (unpadded) worker
+            # output can no longer be unioned back into it.
+            obj = copy.deepcopy(obj)
             # for padding, we only support DataProto with same length
             if data_proto_len is None:
                 data_proto_len = len(obj)
@@ -108,7 +113,11 @@ def _split_args_kwargs_data_proto_with_auto_padding(chunks, *args, **kwargs):
     splitted_args = [_padding_and_split_data(arg, chunks) for arg in args]
     splitted_kwargs = {key: _padding_and_split_data(val, chunks) for key, val in kwargs.items()}
     if padding_size is not None:
-        splitted_kwargs[_padding_size_key] = padding_size
+        # execute_all expects every dispatched kwarg to be a per-rank list.
+        # Keep this controller-only value shaped like the data shards; the Ray
+        # wrapper removes it before invoking workers and uses it to trim the
+        # concatenated result.
+        splitted_kwargs[_padding_size_key] = [padding_size] * chunks
 
     return splitted_args, splitted_kwargs
 
@@ -216,7 +225,13 @@ def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args
     max_workers = max(1, min(len(args[0]), os.cpu_count()))
 
     args = [parallel_put(arg, max_workers=max_workers) for arg in args]
-    kwargs = {k: parallel_put(v, max_workers=max_workers) for k, v in kwargs.items()}
+    kwargs = {
+        # Padding metadata is consumed locally by the worker-group wrapper and
+        # must remain ordinary integers. Turning it into Ray ObjectRefs makes
+        # the wrapper compare object identities instead of padding counts.
+        k: v if k == _padding_size_key else parallel_put(v, max_workers=max_workers)
+        for k, v in kwargs.items()
+    }
 
     all_args = []
     for arg in args:
@@ -254,7 +269,11 @@ def collect_nd_compute(collect_mask: list[bool], worker_group, output):
 
 
 def dispatch_nd_compute_dataproto(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
-    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto(dp_size, *args, **kwargs)
+    # FSDP actor/ref workers use this ND dispatch path even when their data
+    # parallel size equals world size. Episode rollouts contain a variable
+    # number of segment rows, so every DP rank must receive an equal number of
+    # forwards or FSDP collectives will deadlock.
+    splitted_args, splitted_kwargs = _split_args_kwargs_data_proto_with_auto_padding(dp_size, *args, **kwargs)
     return dispatch_nd_compute(dp_rank_mapping, dp_size, worker_group, *splitted_args, **splitted_kwargs)
 
 
