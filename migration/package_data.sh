@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="${AIRNAV_ROOT:-/data1/jingyang/AirNav}"
-TRANSFER_DIR="${TRANSFER_DIR:-/data1/jingyang/tmp/airnav_migration}"
-PHOTO_SOURCE="$ROOT/official_grpo_repro/TrainPhotoData"
-PHOTO_ARCHIVE_DIR="$TRANSFER_DIR/train_photo_data"
+ROOT="${AIRNAV_ROOT:-$PWD}"
+TRANSFER_DIR="${TRANSFER_DIR:-$ROOT/archives}"
+PHOTO_SOURCE="${PHOTO_SOURCE:-$ROOT/official_grpo_repro/TrainPhotoData}"
+PHOTO_ARCHIVE_DIR="$TRANSFER_DIR/TrainPhotoData"
 LARGE_DATA_SOURCE="$ROOT/data/gsam/full_scan_(100, 240, 410).npz"
-LARGE_DATA_ARCHIVE_DIR="$TRANSFER_DIR/large_data_file"
+LARGE_DATA_ARCHIVE_DIR="$TRANSFER_DIR/LargeData"
 PART_SIZE="${PART_SIZE:-4G}"
 PART_PREFIX="TrainPhotoData.tar.part-"
 LARGE_PART_SIZE="${LARGE_PART_SIZE:-1G}"

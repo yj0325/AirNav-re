@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR=${ROOT_DIR:-/data1/jingyang/AirNav}
-PYTHON_BIN=${PYTHON_BIN:-/data1/jingyang/miniconda3/envs/airnav/bin/python}
+ROOT_DIR=${ROOT_DIR:-/nfsdata/yangjing/AirNav}
+PYTHON_BIN=${PYTHON_BIN:-/nfsdata/yangjing/miniconda/envs/airnav/bin/python}
 OUTPUT_DIR=${OUTPUT_DIR:-${ROOT_DIR}/data/airnav_memory}
 
 export PYTHONNOUSERSITE=1

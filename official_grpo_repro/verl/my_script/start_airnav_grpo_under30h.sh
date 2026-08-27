@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/data1/jingyang/AirNav/official_grpo_repro"
+ROOT="/nfsdata/yangjing/AirNav/official_grpo_repro"
 LOG="$ROOT/logs/airnav_grpo_7gpu_optimized.log"
 PID_FILE="$ROOT/run/airnav_grpo_7gpu_optimized.pid"
 

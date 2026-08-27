@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR=${ROOT_DIR:-/data1/jingyang/AirNav}
-PYTHON_BIN=${PYTHON_BIN:-/data1/jingyang/miniconda3/envs/airnav/bin/python}
+ROOT_DIR=${ROOT_DIR:-/nfsdata/yangjing/AirNav}
+PYTHON_BIN=${PYTHON_BIN:-/nfsdata/yangjing/miniconda/envs/airnav/bin/python}
 MODEL_PATH=${MODEL_PATH:-${ROOT_DIR}/verl/checkpoints/airnav_memory_grpo/airnav_sft_memory_terminal_fullbatch_g5_b14_20260814/global_step_200/actor/huggingface}
 SERVED_MODEL_NAME=${SERVED_MODEL_NAME:-airnav-memory-step200}
 POLICY=${POLICY:-learned}
@@ -17,7 +17,7 @@ SERVER_LOG_DIR=${SERVER_LOG_DIR:-${ROOT_DIR}/logs/eval_memory_global_step_200_on
 export PYTHONNOUSERSITE=1
 export PYTHONPATH=${ROOT_DIR}:${ROOT_DIR}/verl:${PYTHONPATH:-}
 export VLLM_USE_V1=${VLLM_USE_V1:-1}
-export MPLCONFIGDIR=${MPLCONFIGDIR:-/data1/jingyang/tmp/matplotlib_airnav_eval}
+export MPLCONFIGDIR=${MPLCONFIGDIR:-/tmp/airnav-yangjing/matplotlib_airnav_eval}
 
 IFS=',' read -r -a GPUS <<< "${GPU_IDS}"
 mkdir -p "${SERVER_LOG_DIR}" "$(dirname "${OUTPUT}")" "${MPLCONFIGDIR}"

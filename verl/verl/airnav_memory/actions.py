@@ -48,7 +48,12 @@ def _extract_json_object(text: str) -> dict:
     raise ValueError("unterminated JSON object")
 
 
-def parse_joint_action(text: str, memory_size: int, capacity: int = 4) -> JointAction:
+def parse_joint_action(
+    text: str,
+    memory_size: int,
+    capacity: int = 4,
+    require_full_chunk: bool = False,
+) -> JointAction:
     """Parse the model output and enforce the state-dependent memory action set."""
     payload = _extract_json_object(text.replace("'", '"'))
     if set(payload) != {"memory_action", "navigation_actions"}:
@@ -64,6 +69,8 @@ def parse_joint_action(text: str, memory_size: int, capacity: int = 4) -> JointA
         raise ValueError("invalid navigation action")
     if "STOP" in actions[:-1]:
         raise ValueError("STOP may only be the final navigation action")
+    if require_full_chunk and "STOP" not in actions and len(actions) != 8:
+        raise ValueError("a non-terminal navigation segment must contain exactly 8 actions")
 
     if memory_size < capacity and memory_action != "APPEND_CURRENT":
         raise ValueError("APPEND_CURRENT is required while the memory window is not full")

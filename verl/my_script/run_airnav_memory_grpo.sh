@@ -2,8 +2,8 @@
 set -euo pipefail
 set -x
 
-ROOT_DIR=${ROOT_DIR:-/data1/jingyang/AirNav}
-PYTHON_BIN=${PYTHON_BIN:-/data1/jingyang/miniconda3/envs/airnav/bin/python}
+ROOT_DIR=${ROOT_DIR:-/nfsdata/yangjing/AirNav}
+PYTHON_BIN=${PYTHON_BIN:-/nfsdata/yangjing/miniconda/envs/airnav/bin/python}
 ENGINE=${1:-vllm}
 if [[ $# -gt 0 ]]; then
   shift
@@ -18,10 +18,16 @@ ACTOR_MAX_TOKEN_LEN_PER_GPU=${ACTOR_MAX_TOKEN_LEN_PER_GPU:-8192}
 LOG_PROB_DYNAMIC_BSZ=${LOG_PROB_DYNAMIC_BSZ:-true}
 OLD_LOG_PROB_MAX_TOKEN_LEN_PER_GPU=${OLD_LOG_PROB_MAX_TOKEN_LEN_PER_GPU:-8192}
 REF_LOG_PROB_MAX_TOKEN_LEN_PER_GPU=${REF_LOG_PROB_MAX_TOKEN_LEN_PER_GPU:-8192}
+ROLLOUT_GPU_MEMORY_UTILIZATION=${ROLLOUT_GPU_MEMORY_UTILIZATION:-0.25}
 ROLLOUT_TP_SIZE=${ROLLOUT_TP_SIZE:-1}
 AGENT_NUM_WORKERS=${AGENT_NUM_WORKERS:-4}
+ACTOR_PARAM_OFFLOAD=${ACTOR_PARAM_OFFLOAD:-false}
+ACTOR_OPTIMIZER_OFFLOAD=${ACTOR_OPTIMIZER_OFFLOAD:-false}
+REF_PARAM_OFFLOAD=${REF_PARAM_OFFLOAD:-false}
 TRAIN_FILE=${TRAIN_FILE:-${ROOT_DIR}/data/airnav_memory/train_one_instruction_seed1.parquet}
+MODEL_PATH=${MODEL_PATH:-${ROOT_DIR}/model_weight/AirNavSFT}
 EXPERIMENT_NAME=${EXPERIMENT_NAME:-airnav_sft_online_memory_terminal_fullbatch_g5_7gpu_b14}
+TOTAL_TRAINING_STEPS=${TOTAL_TRAINING_STEPS:-1500}
 SAVE_FREQ=${SAVE_FREQ:-50}
 RESUME_MODE=${RESUME_MODE:-auto}
 CHECKPOINT_CONTENTS=${CHECKPOINT_CONTENTS:-'["model","optimizer","extra","hf_model"]'}
@@ -36,12 +42,12 @@ export VLLM_USE_V1=${VLLM_USE_V1:-1}
 export VERL_AUTO_PADDING=${VERL_AUTO_PADDING:-1}
 
 export HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
-export HF_HOME=${HF_HOME:-/data1/jingyang/huggingface_cache}
-export HF_HUB_CACHE=${HF_HUB_CACHE:-/data1/jingyang/huggingface_cache/hub}
-export HF_DATASETS_CACHE=${HF_DATASETS_CACHE:-/data1/jingyang/huggingface_cache/datasets}
-export HF_ASSETS_CACHE=${HF_ASSETS_CACHE:-/data1/jingyang/huggingface_cache/assets}
-export TMPDIR=${TMPDIR:-/data1/jingyang/huggingface_cache/tmp}
-export MPLCONFIGDIR=${MPLCONFIGDIR:-/data1/jingyang/tmp/matplotlib_airnav}
+export HF_HOME=${HF_HOME:-/nfsdata/yangjing/.cache/huggingface}
+export HF_HUB_CACHE=${HF_HUB_CACHE:-/nfsdata/yangjing/.cache/huggingface/hub}
+export HF_DATASETS_CACHE=${HF_DATASETS_CACHE:-/nfsdata/yangjing/.cache/huggingface/datasets}
+export HF_ASSETS_CACHE=${HF_ASSETS_CACHE:-/nfsdata/yangjing/.cache/huggingface/assets}
+export TMPDIR=${TMPDIR:-/nfsdata/yangjing/.cache/huggingface/tmp}
+export MPLCONFIGDIR=${MPLCONFIGDIR:-/tmp/airnav-yangjing/matplotlib_airnav}
 
 mkdir -p "${TMPDIR}" "${MPLCONFIGDIR}" "$(dirname "${STOP_FILE}")"
 rm -f "${STOP_FILE}"
@@ -61,7 +67,7 @@ cd "${ROOT_DIR}/verl"
   data.return_multi_modal_inputs=false \
   data.filter_overlong_prompts=false \
   data.truncation=error \
-  actor_rollout_ref.model.path="${ROOT_DIR}/model_weight/AirNavSFT" \
+  actor_rollout_ref.model.path="${MODEL_PATH}" \
   actor_rollout_ref.actor.optim.lr=1e-6 \
   actor_rollout_ref.model.use_remove_padding=true \
   actor_rollout_ref.model.enable_gradient_checkpointing=true \
@@ -74,8 +80,8 @@ cd "${ROOT_DIR}/verl"
   actor_rollout_ref.actor.kl_loss_type=low_var_kl \
   actor_rollout_ref.actor.entropy_coeff=0 \
   actor_rollout_ref.actor.use_torch_compile=false \
-  actor_rollout_ref.actor.fsdp_config.param_offload=false \
-  actor_rollout_ref.actor.fsdp_config.optimizer_offload=false \
+  actor_rollout_ref.actor.fsdp_config.param_offload="${ACTOR_PARAM_OFFLOAD}" \
+  actor_rollout_ref.actor.fsdp_config.optimizer_offload="${ACTOR_OPTIMIZER_OFFLOAD}" \
   actor_rollout_ref.actor.checkpoint.save_contents="${CHECKPOINT_CONTENTS}" \
   actor_rollout_ref.actor.checkpoint.load_contents="${CHECKPOINT_CONTENTS}" \
   actor_rollout_ref.rollout.mode=async \
@@ -86,7 +92,7 @@ cd "${ROOT_DIR}/verl"
   actor_rollout_ref.rollout.log_prob_use_dynamic_bsz="${LOG_PROB_DYNAMIC_BSZ}" \
   actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu="${OLD_LOG_PROB_MAX_TOKEN_LEN_PER_GPU}" \
   actor_rollout_ref.rollout.tensor_model_parallel_size="${ROLLOUT_TP_SIZE}" \
-  actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+  actor_rollout_ref.rollout.gpu_memory_utilization="${ROLLOUT_GPU_MEMORY_UTILIZATION}" \
   actor_rollout_ref.rollout.enable_chunked_prefill=false \
   actor_rollout_ref.rollout.enforce_eager=false \
   actor_rollout_ref.rollout.free_cache_engine=true \
@@ -97,7 +103,7 @@ cd "${ROOT_DIR}/verl"
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu="${PPO_MICRO_BATCH_SIZE}" \
   actor_rollout_ref.ref.log_prob_use_dynamic_bsz="${LOG_PROB_DYNAMIC_BSZ}" \
   actor_rollout_ref.ref.log_prob_max_token_len_per_gpu="${REF_LOG_PROB_MAX_TOKEN_LEN_PER_GPU}" \
-  actor_rollout_ref.ref.fsdp_config.param_offload=true \
+  actor_rollout_ref.ref.fsdp_config.param_offload="${REF_PARAM_OFFLOAD}" \
   algorithm.use_kl_in_reward=false \
   reward_model.enable=false \
   custom_reward_function.path=null \
@@ -116,4 +122,5 @@ cd "${ROOT_DIR}/verl"
   trainer.test_freq=-1 \
   trainer.val_before_train=false \
   trainer.total_epochs=1 \
+  trainer.total_training_steps="${TOTAL_TRAINING_STEPS}" \
   "$@"

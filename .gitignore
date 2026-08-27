@@ -24,6 +24,7 @@ __pycache__/
 migration/artifacts/
 *.tmp
 *.tar.gz
+.airnav-resume/
 
 # Local credentials and API configuration.
 .env

@@ -9,8 +9,9 @@ TMP_ROOT="${AIRNAV_TMP_ROOT:-/tmp/airnav-${USER:-user}}"
 MODEL_REPO="${MODEL_REPO:-ddbcdd/airnav}"
 DATASET_REPO="${DATASET_REPO:-ddbcdd/airnav}"
 MAX_WORKERS="${MAX_WORKERS:-8}"
-RUN_NAME="airnav_grpo_7gpu_resume17_optimized"
-CHECKPOINT_STEP="${CHECKPOINT_STEP:-150}"
+MODEL_NAME="${MODEL_NAME:-AirNavMemoryColdStart}"
+RUN_NAME="${RUN_NAME:-airnav_memory_grpo_coldstart_8gpu_b4_g4_u85}"
+CHECKPOINT_STEP="${CHECKPOINT_STEP:-113}"
 
 if ! command -v modelscope >/dev/null 2>&1; then
     echo "Activate a small transfer environment containing modelscope first." >&2
@@ -32,12 +33,12 @@ mkdir -p "$ROOT/model_weight" "$HF_ROOT" "$TMP_ROOT/ray" "$ENV_ROOT"
 modelscope download "$DATASET_REPO" --repo-type dataset \
     --local_dir "$ROOT" --max-workers "$MAX_WORKERS" \
     --include 'data/**' 'archives/**' 'environment/**' \
-    'official_grpo_repro/checkpoints/**'
+    'checkpoints/airnav_memory_grpo/**'
 modelscope download "$MODEL_REPO" --repo-type model \
     --local_dir "$ROOT/model_weight" --max-workers "$MAX_WORKERS" \
-    --include 'AirNavSFT/**'
+    --include "$MODEL_NAME/**"
 
-CHECKPOINT_ROOT="$ROOT/official_grpo_repro/checkpoints/$RUN_NAME"
+CHECKPOINT_ROOT="$ROOT/verl/checkpoints/airnav_memory_grpo/$RUN_NAME"
 PHOTO_ARCHIVE_DIR="$ROOT/archives/TrainPhotoData"
 PHOTO_PARTS=("$PHOTO_ARCHIVE_DIR"/TrainPhotoData.tar.part-*)
 LARGE_DATA_ARCHIVE_DIR="$ROOT/archives/LargeData"
@@ -65,7 +66,7 @@ cat "${LARGE_DATA_PARTS[@]}" > "$LARGE_DATA_DIR/full_scan_(100, 240, 410).npz"
     sha256sum -c "$LARGE_DATA_ARCHIVE_DIR/ORIGINAL_SHA256SUM"
 )
 
-test -d "$ROOT/model_weight/AirNavSFT"
+test -d "$ROOT/model_weight/$MODEL_NAME"
 test -d "$ROOT/data/AirNav_GRPO"
 test -d "$ROOT/official_grpo_repro/TrainPhotoData"
 test -d "$CHECKPOINT_ROOT/global_step_$CHECKPOINT_STEP"

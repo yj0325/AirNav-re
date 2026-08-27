@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOURCE_ENV="${SOURCE_ENV:-/data1/jingyang/miniconda3/envs/airnav}"
-OUTPUT_DIR="${OUTPUT_DIR:-/data1/jingyang/tmp/airnav_migration}"
-PROJECT_ROOT="${PROJECT_ROOT:-/data1/jingyang/AirNav}"
+SOURCE_ENV="${SOURCE_ENV:-${CONDA_PREFIX:-$PWD/.venv}}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PWD/environment}"
+PROJECT_ROOT="${PROJECT_ROOT:-$PWD}"
 
 mkdir -p "$OUTPUT_DIR" "$PROJECT_ROOT/migration/manifests"
 
@@ -27,11 +27,11 @@ conda-pack \
 "$SOURCE_ENV/bin/python" -m pip freeze --all \
     > "$PROJECT_ROOT/migration/manifests/pip-freeze-airnav.txt"
 
-/data1/jingyang/miniconda3/bin/conda list \
+"${CONDA_EXE:-conda}" list \
     -p "$SOURCE_ENV" --explicit \
     > "$PROJECT_ROOT/migration/manifests/conda-linux-64-explicit.txt"
 
-/data1/jingyang/miniconda3/bin/conda env export \
+"${CONDA_EXE:-conda}" env export \
     -p "$SOURCE_ENV" --no-builds \
     | sed '/^prefix:/d' \
     > "$PROJECT_ROOT/migration/manifests/environment-airnav.yml"

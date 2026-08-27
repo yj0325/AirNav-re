@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR=${ROOT_DIR:-/data1/jingyang/AirNav}
-PYTHON_BIN=${PYTHON_BIN:-/data1/jingyang/miniconda3/envs/airnav/bin/python}
+ROOT_DIR=${ROOT_DIR:-/nfsdata/yangjing/AirNav}
+PYTHON_BIN=${PYTHON_BIN:-/nfsdata/yangjing/miniconda/envs/airnav/bin/python}
 GPU_IDS=${GPU_IDS:-0,1,2,3}
 MODEL_KIND=${1:-sft}
 

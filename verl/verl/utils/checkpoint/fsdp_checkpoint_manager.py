@@ -141,7 +141,10 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             if self.should_load_optimizer:
                 remote_optim_path = os.path.join(local_path, f"optim_world_size_{self.world_size}_rank_{self.rank}.pt")
                 local_optim_path = copy_to_local(remote_optim_path)
-                optimizer_state_dict = torch.load(local_optim_path, weights_only=False)
+                map_location = (
+                    torch.device("cuda", torch.cuda.current_device()) if is_cuda_available else torch.device("cpu")
+                )
+                optimizer_state_dict = torch.load(local_optim_path, map_location=map_location, weights_only=False)
                 self.optimizer.load_state_dict(optimizer_state_dict)
                 log_with_rank(f"Loaded optimizer from {remote_optim_path}", rank=self.rank, logger=logger)
 

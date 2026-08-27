@@ -31,7 +31,7 @@ python -m pip check
 ## Prepare episode parquet
 
 ```bash
-cd /data1/jingyang/AirNav
+cd /nfsdata/yangjing/AirNav
 bash verl/my_script/prepare_airnav_memory_data.sh
 ```
 
@@ -40,7 +40,7 @@ bash verl/my_script/prepare_airnav_memory_data.sh
 Start with one episode and short rollouts before a full job:
 
 ```bash
-cd /data1/jingyang/AirNav
+cd /nfsdata/yangjing/AirNav
 AIRNAV_MAX_SEGMENTS=2 TRAIN_BATCH_SIZE=1 ROLLOUT_GROUP_SIZE=5 \
 bash verl/my_script/run_airnav_memory_grpo.sh vllm \
   trainer.total_training_steps=1

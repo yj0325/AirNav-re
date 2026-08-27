@@ -30,6 +30,11 @@ from verl.airnav_memory.reward import (
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopMetrics, AgentLoopOutput
 from verl.utils.dataset.vision_utils import process_image
 
+try:
+    from vllm.sampling_params import GuidedDecodingParams
+except ImportError:  # pragma: no cover - only needed by vLLM rollouts
+    GuidedDecodingParams = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +50,38 @@ improve future navigation.
 """
 
 
+def joint_action_json_schema(memory_size: int, capacity: int = 4) -> dict[str, Any]:
+    """Return the state-aware schema used to mask memory actions at rollout time."""
+    if memory_size < capacity:
+        allowed_memory = ["APPEND_CURRENT"]
+    else:
+        allowed_memory = ["DROP_1", "DROP_2", "DROP_3", "DROP_4", "DROP_CURRENT"]
+    return {
+        "type": "object",
+        "properties": {
+            "memory_action": {"type": "string", "enum": allowed_memory},
+            "navigation_actions": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": ["MOVE_FORWARD", "STOP", "TURN_LEFT", "TURN_RIGHT"],
+                },
+                "minItems": 1,
+                "maxItems": 8,
+            },
+        },
+        "required": ["memory_action", "navigation_actions"],
+        "additionalProperties": False,
+    }
+
+
 def build_segment_messages(
     instruction: str,
     pose: list[float],
     history_actions: list[str],
     memory_size: int,
+    segment_index: int = 0,
+    memory_ages: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     content: list[dict[str, str]] = []
     for slot in range(memory_size):
@@ -84,6 +116,8 @@ def build_segment_messages(
 - Navigation instruction: {instruction}
 - Current UAV pose: {pose} (x, y, z in meters; heading in degrees)
 - Previously executed navigation actions: {json.dumps(history_actions) if history_actions else "None"}
+- Decision segment index: {segment_index}
+- Retained memory slot ages (0 = the frame from the previous decision): {json.dumps(memory_ages or [])}
 
 ## Memory Rule
 {memory_rule}
@@ -91,7 +125,7 @@ def build_segment_messages(
 ## Navigation Rules
 1. Generate 1 to 8 actions from MOVE_FORWARD, TURN_LEFT, TURN_RIGHT, STOP.
 2. STOP may only be the last action. Stop if the target has been reached.
-3. If more than 8 actions are needed, output exactly 8 actions for this segment.
+3. If STOP is not used, output exactly 8 actions for this segment.
 
 Return only this exact JSON object, without markdown or explanation:
 {{"memory_action":"APPEND_CURRENT or DROP_1/DROP_2/DROP_3/DROP_4/DROP_CURRENT","navigation_actions":["MOVE_FORWARD", "..."]}}
@@ -132,6 +166,8 @@ class AirNavMemoryAgentLoop(AgentLoopBase):
         self.success_reward = float(success_reward)
         self.failure_reward = float(failure_reward)
         self.segment_penalty = float(segment_penalty)
+        self.require_full_chunk = os.getenv("AIRNAV_REQUIRE_FULL_CHUNK", "0") == "1"
+        self.memory_action_mask = os.getenv("AIRNAV_MEMORY_ACTION_MASK", "0") == "1"
         self.response_length = self.config.actor_rollout_ref.rollout.response_length
         self.apply_chat_template_kwargs = self.config.data.get("apply_chat_template_kwargs", {})
 
@@ -201,6 +237,7 @@ class AirNavMemoryAgentLoop(AgentLoopBase):
         single_data = dataset.get_item(episode_index[extra_info["episode_id"]], copy_arrays=False)
         nav_gym = NavGym(single_data, data_dir=os.devnull, write_images=False, track_visualization=False)
         memory = MemoryWindow(capacity=self.memory_capacity)
+        memory_ages: list[int] = []
         history_actions: list[str] = []
         segment_outputs: list[AgentLoopOutput] = []
         request_prefix = uuid4().hex
@@ -215,13 +252,22 @@ class AirNavMemoryAgentLoop(AgentLoopBase):
                 pose=nav_gym.cur_position,
                 history_actions=history_actions,
                 memory_size=len(memory.frames),
+                segment_index=segment_index,
+                memory_ages=memory_ages,
             )
             prompt_ids = await self._encode_prompt(messages, images)
             started = time.perf_counter()
+            request_sampling_params = dict(sampling_params)
+            if self.memory_action_mask:
+                if GuidedDecodingParams is None:
+                    raise RuntimeError("AIRNAV_MEMORY_ACTION_MASK=1 requires vLLM GuidedDecodingParams")
+                request_sampling_params["guided_decoding"] = GuidedDecodingParams(
+                    json=joint_action_json_schema(len(memory.frames), self.memory_capacity)
+                )
             generated = await self.server_manager.generate(
                 request_id=f"{request_prefix}-{segment_index}",
                 prompt_ids=prompt_ids,
-                sampling_params=dict(sampling_params),
+                sampling_params=request_sampling_params,
                 image_data=images,
             )
             elapsed = time.perf_counter() - started
@@ -244,6 +290,7 @@ class AirNavMemoryAgentLoop(AgentLoopBase):
                     response_text,
                     memory_size=len(memory.frames),
                     capacity=self.memory_capacity,
+                    require_full_chunk=self.require_full_chunk,
                 )
                 predicted_actions = list(joint_action.navigation_actions)
             except (ValueError, json.JSONDecodeError, TypeError) as error:
@@ -257,12 +304,20 @@ class AirNavMemoryAgentLoop(AgentLoopBase):
             termination_reason = "running"
             requested_stop = False
             executed_actions: list[str] = []
+            memory_size_before = len(memory.frames)
 
             if not format_valid or not response_ids:
                 terminal = True
                 termination_reason = "invalid_format" if not format_valid else "empty_response"
             else:
                 memory.update(joint_action.memory_action, current_image)
+                if memory_size_before < self.memory_capacity:
+                    memory_ages = [age + 1 for age in memory_ages] + [0]
+                elif joint_action.memory_action == "DROP_CURRENT":
+                    memory_ages = [age + 1 for age in memory_ages]
+                else:
+                    slot = int(joint_action.memory_action.removeprefix("DROP_")) - 1
+                    memory_ages = [age + 1 for index, age in enumerate(memory_ages) if index != slot] + [0]
                 for action in predicted_actions:
                     history_actions.append(action)
                     total_actions += 1
@@ -327,6 +382,10 @@ class AirNavMemoryAgentLoop(AgentLoopBase):
                 "predicted_action_count": len(predicted_actions),
                 "executed_action_count": len(executed_actions),
                 "episode_action_count": total_actions,
+                "memory_action": joint_action.memory_action if joint_action is not None else "INVALID",
+                "memory_size_before": memory_size_before,
+                "memory_size_after": len(memory.frames),
+                "memory_slot_ages": list(memory_ages),
             }
             segment_outputs.append(
                 AgentLoopOutput(
@@ -351,6 +410,10 @@ class AirNavMemoryAgentLoop(AgentLoopBase):
                         "predicted_action_count": len(predicted_actions),
                         "executed_action_count": len(executed_actions),
                         "episode_action_count": total_actions,
+                        "memory_action": joint_action.memory_action if joint_action is not None else "INVALID",
+                        "memory_size_before": memory_size_before,
+                        "memory_size_after": len(memory.frames),
+                        "memory_slot_ages": list(memory_ages),
                         "reward_model": {"style": "rule", "ground_truth": json.dumps(teacher_actions)},
                         "extra_info": segment_extra_info,
                     },

@@ -20,6 +20,7 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import json
 import os
+import shutil
 import uuid
 from collections import defaultdict
 from copy import deepcopy
@@ -834,8 +835,32 @@ class RayPPOTrainer:
         local_latest_checkpointed_iteration = os.path.join(
             self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt"
         )
-        with open(local_latest_checkpointed_iteration, "w") as f:
+        tracker_tmp = f"{local_latest_checkpointed_iteration}.tmp"
+        with open(tracker_tmp, "w") as f:
             f.write(str(self.global_steps))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tracker_tmp, local_latest_checkpointed_iteration)
+
+        # Rotate whole checkpoint directories only after the new checkpoint and
+        # its tracker are durable, so a failed save cannot remove the only good checkpoint.
+        max_global_ckpt_to_keep = self.config.trainer.get("max_global_ckpt_to_keep", None)
+        if isinstance(max_global_ckpt_to_keep, int) and max_global_ckpt_to_keep > 0:
+            checkpoint_root = os.path.abspath(self.config.trainer.default_local_dir)
+            checkpoints = []
+            for name in os.listdir(checkpoint_root):
+                prefix = "global_step_"
+                if not name.startswith(prefix) or not name[len(prefix) :].isdigit():
+                    continue
+                path = os.path.join(checkpoint_root, name)
+                if os.path.isdir(path):
+                    checkpoints.append((int(name[len(prefix) :]), path))
+            checkpoints.sort()
+            for _, obsolete_path in checkpoints[:-max_global_ckpt_to_keep]:
+                if os.path.abspath(obsolete_path) == os.path.abspath(local_global_step_folder):
+                    continue
+                print(f"Removing obsolete completed checkpoint: {obsolete_path}")
+                shutil.rmtree(obsolete_path)
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == "disable":
