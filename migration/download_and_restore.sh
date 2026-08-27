@@ -75,7 +75,7 @@ test "$(tr -d '[:space:]' < "$CHECKPOINT_ROOT/latest_checkpointed_iteration.txt"
 cd "$ROOT/environment"
 sha256sum -c SHA256SUMS
 tar -xzf airnav-conda-pack.tar.gz -C "$ENV_ROOT"
-"$ENV_ROOT/bin/conda-unpack"
+"$ENV_ROOT/bin/python" "$ENV_ROOT/bin/conda-unpack"
 
 "$ENV_ROOT/bin/python" "$ROOT/migration/relocate_airnav.py" \
     --project-root "$ROOT" \

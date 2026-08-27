@@ -82,7 +82,7 @@ test -x "$ENV_ROOT/bin/python"
 test -x "$ENV_ROOT/bin/conda-unpack"
 
 log "Running conda-unpack"
-"$ENV_ROOT/bin/conda-unpack"
+"$ENV_ROOT/bin/python" "$ENV_ROOT/bin/conda-unpack"
 
 log "Relocating project and cache paths"
 "$ENV_ROOT/bin/python" "$ROOT/migration/relocate_airnav.py" \
